@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using RaceDay.API.Data;
+using System.Reflection;
+
 var builder = WebApplication.CreateBuilder(args);
 // Register controllers
 builder.Services.AddControllers();
@@ -47,6 +49,8 @@ builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    options.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, xmlFile));
     options.SwaggerDoc("v1", new OpenApiInfo
     {
         Title = "RaceDay API",

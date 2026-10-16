@@ -6,19 +6,33 @@ using RaceDay.API.Data;
 using RaceDay.API.DTOs;
 using RaceDay.API.Models;
 namespace RaceDay.API.Controllers;
+/// <summary>
+/// Manages race events, including viewing, creating,
+/// updating and deleting events.
+/// </summary>
 [ApiController]
 [Route("api/events")]
 public class EventsController : ControllerBase
 {
     private readonly RaceDayDbContext _context;
+    /// <summary>
+    /// Initialises the EventsController.
+    /// </summary>
+    /// <param name="context">The RaceDay database context.</param>
     public EventsController(RaceDayDbContext context)
     {
         _context = context;
     }
-    // GET: api/events
-    // Optional filters: ?date=2026-10-20&location=Johannesburg
+    /// <summary>
+    /// Retrieves all published events.
+    /// </summary>
+    /// <param name="date">Optional event date filter.</param>
+    /// <param name="location">Optional event location filter.</param>
+    /// <returns>A list of published events matching the filters.</returns>
+    /// <response code="200">Returns the list of events.</response>
     [HttpGet]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetEvents(
         [FromQuery] DateTime? date,
         [FromQuery] string? location)
@@ -56,9 +70,17 @@ public class EventsController : ControllerBase
             .ToListAsync();
         return Ok(events);
     }
-    // GET: api/events/{id}
+    /// <summary>
+    /// Retrieves a published event and its categories.
+    /// </summary>
+    /// <param name="id">The ID of the event.</param>
+    /// <returns>The event details and associated categories.</returns>
+    /// <response code="200">Returns the event.</response>
+    /// <response code="404">The event was not found or is unpublished.</response>
     [HttpGet("{id:int}", Name = "GetEventById")]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetEventById(int id)
     {
         var eventItem = await _context.Events
@@ -67,7 +89,12 @@ public class EventsController : ControllerBase
             .FirstOrDefaultAsync(e =>
                 e.EventId == id && e.IsPublished);
         if (eventItem == null)
-            return NotFound(new { message = "Published event not found." });
+        {
+            return NotFound(new
+            {
+                message = "Published event not found."
+            });
+        }
         return Ok(new
         {
             eventItem.EventId,
@@ -90,16 +117,32 @@ public class EventsController : ControllerBase
             })
         });
     }
-    // POST: api/events
+    /// <summary>
+    /// Creates a new published event for the authenticated organiser.
+    /// </summary>
+    /// <param name="request">The event information.</param>
+    /// <returns>The newly created event.</returns>
+    /// <response code="201">The event was created.</response>
+    /// <response code="400">The event information is invalid.</response>
+    /// <response code="401">The user is not authenticated.</response>
+    /// <response code="403">The user is not an organiser.</response>
     [HttpPost]
     [Authorize(Roles = "Organiser")]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateEvent(
         [FromBody] EventRequest request)
     {
         if (!IsValidRequest(request, out string error))
+        {
             return BadRequest(new { message = error });
+        }
         if (!TryGetUserId(out int organiserId))
+        {
             return Unauthorized();
+        }
         var eventItem = new Event
         {
             Name = request.Name.Trim(),
@@ -118,23 +161,46 @@ public class EventsController : ControllerBase
             new { id = eventItem.EventId },
             ToResponse(eventItem));
     }
-    // PUT: api/events/{id}
+    /// <summary>
+    /// Updates an event owned by the authenticated organiser.
+    /// </summary>
+    /// <param name="id">The ID of the event to update.</param>
+    /// <param name="request">The updated event information.</param>
+    /// <returns>The updated event.</returns>
+    /// <response code="200">The event was updated.</response>
+    /// <response code="400">The supplied information is invalid.</response>
+    /// <response code="401">The user is not authenticated.</response>
+    /// <response code="403">The event belongs to another organiser.</response>
+    /// <response code="404">The event was not found.</response>
     [HttpPut("{id:int}")]
     [Authorize(Roles = "Organiser")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateEvent(
         int id,
         [FromBody] EventRequest request)
     {
         if (!IsValidRequest(request, out string error))
+        {
             return BadRequest(new { message = error });
+        }
         if (!TryGetUserId(out int organiserId))
+        {
             return Unauthorized();
+        }
         var eventItem = await _context.Events
             .FirstOrDefaultAsync(e => e.EventId == id);
         if (eventItem == null)
+        {
             return NotFound(new { message = "Event not found." });
+        }
         if (eventItem.OrganiserId != organiserId)
+        {
             return Forbid();
+        }
         eventItem.Name = request.Name.Trim();
         eventItem.Description = request.Description?.Trim();
         eventItem.EventDate = request.EventDate;
@@ -144,19 +210,38 @@ public class EventsController : ControllerBase
         await _context.SaveChangesAsync();
         return Ok(ToResponse(eventItem));
     }
-    // DELETE: api/events/{id}
+    /// <summary>
+    /// Deletes an event owned by the authenticated organiser,
+    /// including its related results, enrolments and categories.
+    /// </summary>
+    /// <param name="id">The ID of the event to delete.</param>
+    /// <returns>No content when deletion succeeds.</returns>
+    /// <response code="204">The event was deleted.</response>
+    /// <response code="401">The user is not authenticated.</response>
+    /// <response code="403">The event belongs to another organiser.</response>
+    /// <response code="404">The event was not found.</response>
     [HttpDelete("{id:int}")]
     [Authorize(Roles = "Organiser")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteEvent(int id)
     {
         if (!TryGetUserId(out int organiserId))
+        {
             return Unauthorized();
+        }
         var eventItem = await _context.Events
             .FirstOrDefaultAsync(e => e.EventId == id);
         if (eventItem == null)
+        {
             return NotFound(new { message = "Event not found." });
+        }
         if (eventItem.OrganiserId != organiserId)
+        {
             return Forbid();
+        }
         var enrolmentIds = await _context.Enrolments
             .Where(e => e.EventId == id)
             .Select(e => e.EnrolmentId)
@@ -177,6 +262,9 @@ public class EventsController : ControllerBase
         await _context.SaveChangesAsync();
         return NoContent();
     }
+    /// <summary>
+    /// Validates the event details supplied by the client.
+    /// </summary>
     private bool IsValidRequest(
         EventRequest request,
         out string error)
@@ -212,12 +300,18 @@ public class EventsController : ControllerBase
         }
         return string.IsNullOrEmpty(error);
     }
+    /// <summary>
+    /// Gets the authenticated user's ID from the JWT claims.
+    /// </summary>
     private bool TryGetUserId(out int userId)
     {
         return int.TryParse(
             User.FindFirstValue(ClaimTypes.NameIdentifier),
             out userId);
     }
+    /// <summary>
+    /// Converts an event model into an API response.
+    /// </summary>
     private static EventResponse ToResponse(Event eventItem)
     {
         return new EventResponse
