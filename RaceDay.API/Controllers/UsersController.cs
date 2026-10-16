@@ -4,46 +4,42 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RaceDay.API.Data;
 using RaceDay.API.DTOs;
-
+using RaceDay.API.Models;
 namespace RaceDay.API.Controllers;
-
 [ApiController]
 [Route("api/users")]
 [Authorize]
 public class UsersController : ControllerBase
 {
     private readonly RaceDayDbContext _context;
-
     public UsersController(RaceDayDbContext context)
     {
         _context = context;
     }
-
     // GET: api/users/me
     [HttpGet("me")]
     public async Task<IActionResult> GetMyProfile()
     {
         if (!TryGetUserId(out int userId))
             return Unauthorized();
-
         var user = await _context.Users
             .AsNoTracking()
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.UserId == userId);
-
         if (user == null)
             return NotFound(new { message = "User not found." });
-
         return Ok(new
         {
             user.UserId,
             user.FullName,
             user.Email,
-            Role = user.Role?.RoleName,
+            user.ContactPhone,
+            user.DateOfBirth,
+            user.EmergencyContact,
+            Role = user.Role != null ? user.Role.RoleName : null,
             user.CreatedAt
         });
     }
-
     // PUT: api/users/me
     [HttpPut("me")]
     public async Task<IActionResult> UpdateMyProfile(
@@ -51,63 +47,120 @@ public class UsersController : ControllerBase
     {
         if (!TryGetUserId(out int userId))
             return Unauthorized();
-
-        if (string.IsNullOrWhiteSpace(request.FullName) ||
-            string.IsNullOrWhiteSpace(request.Email))
-        {
-            return BadRequest(new
-            {
-                message = "Full name and email are required."
-            });
-        }
-
-        var fullName = request.FullName.Trim();
-        var email = request.Email.Trim().ToLowerInvariant();
-
-        if (fullName.Length > 100 || email.Length > 150 ||
-            !email.Contains('@'))
-        {
-            return BadRequest(new
-            {
-                message = "Please provide a valid name and email."
-            });
-        }
-
         var user = await _context.Users
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.UserId == userId);
-
         if (user == null)
             return NotFound(new { message = "User not found." });
-
-        var emailInUse = await _context.Users.AnyAsync(u =>
-            u.UserId != userId &&
-            u.Email.ToLower() == email);
-
-        if (emailInUse)
+        string roleName = user.Role?.RoleName ?? string.Empty;
+        // Update the fields shared by both roles.
+        if (request.FullName != null)
         {
-            return Conflict(new
+            if (string.IsNullOrWhiteSpace(request.FullName))
             {
-                message = "That email address is already registered."
-            });
+                return BadRequest(new
+                {
+                    message = "Full name cannot be empty."
+                });
+            }
+            user.FullName = request.FullName.Trim();
         }
-
-        user.FullName = fullName;
-        user.Email = email;
-
+        if (request.Email != null)
+        {
+            if (string.IsNullOrWhiteSpace(request.Email) ||
+                !request.Email.Contains('@'))
+            {
+                return BadRequest(new
+                {
+                    message = "Please provide a valid email address."
+                });
+            }
+            string email = request.Email.Trim();
+            bool emailExists = await _context.Users.AnyAsync(
+                u => u.Email == email && u.UserId != userId);
+            if (emailExists)
+            {
+                return Conflict(new
+                {
+                    message = "This email address is already in use."
+                });
+            }
+            user.Email = email;
+        }
+        // Organiser-specific profile fields.
+        if (roleName.Equals(
+            "Organiser",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            if (request.ContactPhone != null)
+            {
+                if (string.IsNullOrWhiteSpace(request.ContactPhone))
+                {
+                    return BadRequest(new
+                    {
+                        message = "Contact phone cannot be empty."
+                    });
+                }
+                user.ContactPhone = request.ContactPhone.Trim();
+            }
+            if (request.DateOfBirth.HasValue ||
+                request.EmergencyContact != null)
+            {
+                return BadRequest(new
+                {
+                    message = "Organisers can update their contact phone, not participant-specific fields."
+                });
+            }
+        }
+        // Participant-specific profile fields.
+        else if (roleName.Equals(
+            "Participant",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            if (request.DateOfBirth.HasValue)
+            {
+                if (request.DateOfBirth.Value.Date > DateTime.Today)
+                {
+                    return BadRequest(new
+                    {
+                        message = "Date of birth cannot be in the future."
+                    });
+                }
+                user.DateOfBirth = request.DateOfBirth.Value.Date;
+            }
+            if (request.EmergencyContact != null)
+            {
+                if (string.IsNullOrWhiteSpace(request.EmergencyContact))
+                {
+                    return BadRequest(new
+                    {
+                        message = "Emergency contact cannot be empty."
+                    });
+                }
+                user.EmergencyContact = request.EmergencyContact.Trim();
+            }
+            if (request.ContactPhone != null)
+            {
+                return BadRequest(new
+                {
+                    message = "Participants cannot update the organiser contact phone field."
+                });
+            }
+        }
         await _context.SaveChangesAsync();
-
         return Ok(new
         {
+            message = "Profile updated successfully.",
             user.UserId,
             user.FullName,
             user.Email,
-            Role = user.Role?.RoleName
+            user.ContactPhone,
+            user.DateOfBirth,
+            user.EmergencyContact,
+            Role = roleName
         });
     }
-
-    // GET: api/users/10
-    // Organisers can view a user's public profile.
+    // GET: api/users/{id}
     [HttpGet("{id:int}")]
     [Authorize(Roles = "Organiser")]
     public async Task<IActionResult> GetUserById(int id)
@@ -116,18 +169,16 @@ public class UsersController : ControllerBase
             .AsNoTracking()
             .Include(u => u.Role)
             .FirstOrDefaultAsync(u => u.UserId == id);
-
         if (user == null)
             return NotFound(new { message = "User not found." });
-
+        // Return public profile information only.
         return Ok(new
         {
             user.UserId,
             user.FullName,
-            Role = user.Role?.RoleName
+            Role = user.Role != null ? user.Role.RoleName : null
         });
     }
-
     private bool TryGetUserId(out int userId)
     {
         return int.TryParse(
