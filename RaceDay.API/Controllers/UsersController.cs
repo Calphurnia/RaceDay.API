@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using RaceDay.API.Data;
 using RaceDay.API.DTOs;
-using RaceDay.API.Models;
 namespace RaceDay.API.Controllers;
 [ApiController]
 [Route("api/users")]
@@ -53,16 +52,10 @@ public class UsersController : ControllerBase
         if (user == null)
             return NotFound(new { message = "User not found." });
         string roleName = user.Role?.RoleName ?? string.Empty;
-        // Update the fields shared by both roles.
         if (request.FullName != null)
         {
             if (string.IsNullOrWhiteSpace(request.FullName))
-            {
-                return BadRequest(new
-                {
-                    message = "Full name cannot be empty."
-                });
-            }
+                return BadRequest(new { message = "Full name cannot be empty." });
             user.FullName = request.FullName.Trim();
         }
         if (request.Email != null)
@@ -76,31 +69,18 @@ public class UsersController : ControllerBase
                 });
             }
             string email = request.Email.Trim();
-            bool emailExists = await _context.Users.AnyAsync(
-                u => u.Email == email && u.UserId != userId);
+            bool emailExists = await _context.Users
+                .AnyAsync(u => u.Email == email && u.UserId != userId);
             if (emailExists)
-            {
-                return Conflict(new
-                {
-                    message = "This email address is already in use."
-                });
-            }
+                return Conflict(new { message = "This email address is already in use." });
             user.Email = email;
         }
-        // Organiser-specific profile fields.
-        if (roleName.Equals(
-            "Organiser",
-            StringComparison.OrdinalIgnoreCase))
+        if (roleName.Equals("Organiser", StringComparison.OrdinalIgnoreCase))
         {
             if (request.ContactPhone != null)
             {
                 if (string.IsNullOrWhiteSpace(request.ContactPhone))
-                {
-                    return BadRequest(new
-                    {
-                        message = "Contact phone cannot be empty."
-                    });
-                }
+                    return BadRequest(new { message = "Contact phone cannot be empty." });
                 user.ContactPhone = request.ContactPhone.Trim();
             }
             if (request.DateOfBirth.HasValue ||
@@ -112,10 +92,7 @@ public class UsersController : ControllerBase
                 });
             }
         }
-        // Participant-specific profile fields.
-        else if (roleName.Equals(
-            "Participant",
-            StringComparison.OrdinalIgnoreCase))
+        else if (roleName.Equals("Participant", StringComparison.OrdinalIgnoreCase))
         {
             if (request.DateOfBirth.HasValue)
             {
@@ -131,12 +108,7 @@ public class UsersController : ControllerBase
             if (request.EmergencyContact != null)
             {
                 if (string.IsNullOrWhiteSpace(request.EmergencyContact))
-                {
-                    return BadRequest(new
-                    {
-                        message = "Emergency contact cannot be empty."
-                    });
-                }
+                    return BadRequest(new { message = "Emergency contact cannot be empty." });
                 user.EmergencyContact = request.EmergencyContact.Trim();
             }
             if (request.ContactPhone != null)
@@ -146,6 +118,10 @@ public class UsersController : ControllerBase
                     message = "Participants cannot update the organiser contact phone field."
                 });
             }
+        }
+        else
+        {
+            return BadRequest(new { message = "User role is not recognised." });
         }
         await _context.SaveChangesAsync();
         return Ok(new
@@ -171,7 +147,6 @@ public class UsersController : ControllerBase
             .FirstOrDefaultAsync(u => u.UserId == id);
         if (user == null)
             return NotFound(new { message = "User not found." });
-        // Return public profile information only.
         return Ok(new
         {
             user.UserId,

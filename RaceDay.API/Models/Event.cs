@@ -1,5 +1,4 @@
 ﻿namespace RaceDay.API.Models;
-
 public class Event
 {
     public int EventId { get; set; }
@@ -10,7 +9,7 @@ public class Event
     public decimal Distance { get; set; }
     public string EventType { get; set; } = string.Empty;
     public int OrganiserId { get; set; }
-
+    public bool IsPublished { get; set; } = true;
     public User? Organiser { get; set; }
     public ICollection<Category> Categories { get; set; }
         = new List<Category>();
