@@ -8,6 +8,8 @@ public class Enrolment
     public int CategoryId { get; set; }
     public DateTime EnrolmentDate { get; set; }
 
+    public string Status { get; set; } = "Registered";
+
     public User? Participant { get; set; }
     public Event? Event { get; set; }
     public Category? Category { get; set; }
